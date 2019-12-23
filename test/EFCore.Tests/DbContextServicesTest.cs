@@ -2647,6 +2647,28 @@ namespace Microsoft.EntityFrameworkCore
                     .ConfigureWarnings(w => w.Default(WarningBehavior.Throw));
         }
 
+        private class CustomParameterBindingFactory : IParameterBindingFactory
+        {
+            public bool CanBind(Type parameterType, string parameterName) => false;
+
+            public ParameterBinding Bind(IMutableEntityType entityType, Type parameterType, string parameterName)
+                => throw new NotImplementedException();
+
+            public ParameterBinding Bind(IConventionEntityType entityType, Type parameterType, string parameterName)
+                => throw new NotImplementedException();
+        }
+
+        private class CustomParameterBindingFactory2 : IParameterBindingFactory
+        {
+            public bool CanBind(Type parameterType, string parameterName) => false;
+
+            public ParameterBinding Bind(IMutableEntityType entityType, Type parameterType, string parameterName)
+                => throw new NotImplementedException();
+
+            public ParameterBinding Bind(IConventionEntityType entityType, Type parameterType, string parameterName)
+                => throw new NotImplementedException();
+        }
+
         private class CustomModelCustomizer : ModelCustomizer
         {
             public CustomModelCustomizer(ModelCustomizerDependencies dependencies)
@@ -2692,12 +2714,15 @@ namespace Microsoft.EntityFrameworkCore
             {
                 Assert.NotNull(replacedSingleton = context.GetService<IModelCustomizer>());
                 Assert.IsType<CustomModelCustomizer>(replacedSingleton);
+                Assert.Single(context.GetService<IEnumerable<IModelCustomizer>>());
 
                 Assert.NotNull(replacedScoped = context.GetService<IValueGeneratorSelector>());
                 Assert.IsType<CustomInMemoryValueGeneratorSelector>(replacedScoped);
+                Assert.Single(context.GetService<IEnumerable<IValueGeneratorSelector>>());
 
                 Assert.NotNull(replacedProviderService = context.GetService<IInMemoryTableFactory>());
                 Assert.IsType<CustomInMemoryTableFactory>(replacedProviderService);
+                Assert.Single(context.GetService<IEnumerable<IInMemoryTableFactory>>());
             }
 
             using (var context = new ConstructorTestContextWithOC3A(options))
@@ -2733,12 +2758,15 @@ namespace Microsoft.EntityFrameworkCore
 
                 Assert.NotNull(replacedSingleton = context.GetService<IModelCustomizer>());
                 Assert.IsType<CustomModelCustomizer>(replacedSingleton);
+                Assert.Single(context.GetService<IEnumerable<IModelCustomizer>>());
 
                 Assert.NotNull(replacedScoped = context.GetService<IValueGeneratorSelector>());
                 Assert.IsType<CustomInMemoryValueGeneratorSelector>(replacedScoped);
+                Assert.Single(context.GetService<IEnumerable<IValueGeneratorSelector>>());
 
                 Assert.NotNull(replacedProviderService = context.GetService<IInMemoryTableFactory>());
                 Assert.IsType<CustomInMemoryTableFactory>(replacedProviderService);
+                Assert.Single(context.GetService<IEnumerable<IInMemoryTableFactory>>());
             }
 
             using (var serviceScope = appServiceProvider
@@ -2751,6 +2779,80 @@ namespace Microsoft.EntityFrameworkCore
                 Assert.NotSame(replacedSingleton, context.GetService<IModelCustomizer>());
                 Assert.NotSame(replacedScoped, context.GetService<IValueGeneratorSelector>());
                 Assert.NotSame(replacedProviderService, context.GetService<IInMemoryTableFactory>());
+            }
+        }
+
+        [ConditionalFact]
+        public void Can_replace_all_multiple_registrations()
+        {
+            var options = new DbContextOptionsBuilder<ConstructorTestContextWithOC3A>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .ReplaceService<IParameterBindingFactory, CustomParameterBindingFactory>()
+                .Options;
+
+            using (var context = new ConstructorTestContextWithOC3A(options))
+            {
+                var replacedServices = context.GetService<IEnumerable<IParameterBindingFactory>>().ToList();
+                Assert.Equal(3, replacedServices.Count);
+
+                foreach (var replacedService in replacedServices)
+                {
+                    Assert.IsType<CustomParameterBindingFactory>(replacedService);
+                }
+            }
+        }
+
+        [ConditionalFact]
+        public void Can_replace_specific_implementation_of_multiple_registrations()
+        {
+            var options = new DbContextOptionsBuilder<ConstructorTestContextWithOC3A>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .ReplaceService<IParameterBindingFactory, EntityTypeParameterBindingFactory, CustomParameterBindingFactory>()
+                .Options;
+
+            using (var context = new ConstructorTestContextWithOC3A(options))
+            {
+                var replacedServices = context.GetService<IEnumerable<IParameterBindingFactory>>().ToList();
+                Assert.Equal(3, replacedServices.Count);
+
+                Assert.Single(replacedServices.Where(t => t is ContextParameterBindingFactory));
+                Assert.Single(replacedServices.Where(t => t is CustomParameterBindingFactory));
+                Assert.Single(replacedServices.Where(t => t is ServiceParameterBindingFactory));
+            }
+        }
+
+        [ConditionalFact]
+        public void Can_replace_specific_implementation_of_single_registration()
+        {
+            var options = new DbContextOptionsBuilder<ConstructorTestContextWithOC3A>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .ReplaceService<IModelCustomizer, ModelCustomizer, CustomModelCustomizer>()
+                .Options;
+
+            using (var context = new ConstructorTestContextWithOC3A(options))
+            {
+                var replacedServices = context.GetService<IEnumerable<IModelCustomizer>>().ToList();
+                Assert.Single(replacedServices);
+                Assert.IsType<CustomModelCustomizer>(replacedServices.Single());
+            }
+        }
+
+        [ConditionalFact]
+        public void Can_replace_specific_implementation_and_all_others()
+        {
+            var options = new DbContextOptionsBuilder<ConstructorTestContextWithOC3A>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .ReplaceService<IParameterBindingFactory, EntityTypeParameterBindingFactory, CustomParameterBindingFactory>()
+                .ReplaceService<IParameterBindingFactory, CustomParameterBindingFactory2>()
+                .Options;
+
+            using (var context = new ConstructorTestContextWithOC3A(options))
+            {
+                var replacedServices = context.GetService<IEnumerable<IParameterBindingFactory>>().ToList();
+                Assert.Equal(3, replacedServices.Count);
+
+                Assert.Equal(2, replacedServices.Count(t => t is CustomParameterBindingFactory2));
+                Assert.Single(replacedServices.Where(t => t is CustomParameterBindingFactory));
             }
         }
 
